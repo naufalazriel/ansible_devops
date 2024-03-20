@@ -1,0 +1,129 @@
+---
+- name: Install and configure all services
+  hosts: all
+  become: true
+  tasks:
+
+   # - name: Update apt cache
+     # apt:
+      # update_cache: yes
+
+    - name: Installing Prerequisites for Kubernetes microk8s
+      apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - software-properties-common
+          - python3-pip
+          - virtualenv
+          - python3-setuptools
+          - curl
+          - gnupg-agent
+          - vim
+          - software-properties-common
+        state: present
+
+    - name: install APT Transport HTTPS
+      apt:
+        name: apt-transport-https
+        state: present
+
+- name: Install microk8s
+  become: yes
+  hosts: all
+  tasks:
+    - community.general.snap:
+        classic: true
+        channel: 1.26
+        name:
+          - microk8s
+
+- name: Adding user to group
+  become: yes
+  hosts: microk8s
+  tasks:
+    - user:
+        name: naufal
+        groups: naufal
+        append: yes
+    - meta: reset_connection
+
+- name: Change kube folder ownership
+  become: yes
+  hosts: microk8s
+  tasks:
+    - file:
+        path: /home/naufal/.kube
+        owner: naufal
+        group: naufal
+        state: directory
+
+- name: Enable microk8s common modules
+  hosts: microk8s
+  tasks: 
+    - command: microk8s enable dns cert-manager ingress hostpath-storage
+      become: yes
+
+- name: Install docker
+  hosts: all
+  become: true
+  tasks:
+
+    - name: add Docker apt-key
+      get_url:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        dest: /etc/apt/keyrings/docker-apt-keyring.asc
+        mode: '0644'
+        force: true
+
+    - name: Add an apt signing key for Docker
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: Add apt repository for stable version
+      apt_repository:
+        repo: deb [arch=amd64] https://download.docker.com/linux/ubuntu xenial stable
+        state: present
+    
+    - name: Install docker and its dependecies
+      apt: 
+        name: "{{ packages }}"
+        state: present
+        update_cache: yes
+      vars:
+        packages:
+         - docker-ce 
+         - docker-ce-cli 
+         - containerd.io
+    
+    - name: Install Docker Module for Python
+      pip:
+        name: docker
+
+    - name: install Containerd
+      apt:
+        name: containerd.io
+        state: present
+
+    - name: create Containerd directory
+      file:
+        path: /etc/containerd
+        state: directory
+
+    - name: add Containerd configuration
+      shell: /usr/bin/containerd config default > /etc/containerd/config.toml
+
+    - name: configuring the systemd cgroup driver for Containerd
+      lineinfile:
+        path: /etc/containerd/config.toml
+        regexp: '            SystemdCgroup = false'
+        line: '            SystemdCgroup = true'
+
+    - name: enable the Containerd service and start it
+      systemd:
+        name: containerd
+        state: restarted
+        enabled: yes
+        daemon-reload: yes
+
